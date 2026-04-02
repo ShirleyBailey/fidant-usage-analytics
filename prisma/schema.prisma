@@ -1,0 +1,27 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model users {
+  id         Int      @id @default(autoincrement())
+  email      String   @unique
+  name       String?
+  plan_tier  String   @default("starter") @db.VarChar(16)
+  created_at DateTime @default(now())
+}
+
+model daily_usage_events {
+  id           Int      @id @default(autoincrement())
+  user_id      Int
+  date_key     String   @db.VarChar(10) // "YYYY-MM-DD"
+  request_id   String   @db.VarChar(64)
+  status       String   @db.VarChar(16) // "reserved" | "committed"
+  reserved_at  DateTime @default(now())
+  committed_at DateTime?
+  created_at   DateTime @default(now())
+}
