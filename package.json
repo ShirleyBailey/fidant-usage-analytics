@@ -1,0 +1,19 @@
+{
+  "name": "fidant-usage-analytics",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "ts-node-dev src/app.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^5",
+    "express": "^4",
+    "zod": "^3",
+    "dayjs": "^1"
+  },
+  "devDependencies": {
+    "prisma": "^5",
+    "ts-node-dev": "^2",
+    "typescript": "^5",
+    "@types/express": "^4"
+  }
+}
