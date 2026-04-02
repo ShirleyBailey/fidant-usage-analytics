@@ -38,10 +38,7 @@ export async function getUsageStats(
     }
   })
 
-  const map: Record<
-    string,
-    { committed: number; reserved: number }
-  > = {}
+  const map: Record<string, { committed: number; reserved: number }> = {}
 
   for (const date of dateRange) {
     map[date] = { committed: 0, reserved: 0 }
@@ -74,16 +71,53 @@ export async function getUsageStats(
     }
   })
 
+  // -------------------------
+  // 🔥 STEP 4: SUMMARY 
+  // -------------------------
+
+  // 1. total_committed
+  const total_committed = daysData.reduce(
+    (sum, d) => sum + d.committed,
+    0
+  )
+
+  // 2. avg_daily
+  const avg_daily =
+    daysData.length > 0 ? total_committed / daysData.length : 0
+
+  // 3. peak_day
+  let peak_day: { date: string; count: number } | null = null
+
+  for (const d of daysData) {
+    if (!peak_day || d.committed > peak_day.count) {
+      peak_day = { date: d.date, count: d.committed }
+    }
+  }
+
+  if (peak_day && peak_day.count === 0) {
+    peak_day = null
+  }
+
+  let current_streak = 0
+
+  for (let i = daysData.length - 1; i >= 0; i--) {
+    if (daysData[i].committed > 0) {
+      current_streak++
+    } else {
+      break
+    }
+  }
+
   return {
     plan,
     daily_limit,
     period: { from, to },
     days: daysData,
     summary: {
-      total_committed: 0,
-      avg_daily: 0,
-      peak_day: null,
-      current_streak: 0
+      total_committed,
+      avg_daily,
+      peak_day,
+      current_streak
     }
   }
 }
