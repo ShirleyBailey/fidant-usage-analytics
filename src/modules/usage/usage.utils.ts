@@ -9,3 +9,9 @@ export const statsQuerySchema = z.object({
       message: 'days must be between 1 and 90'
     })
 })
+
+export function isRecent(date: Date): boolean {
+  const now = new Date()
+  const diff = now.getTime() - date.getTime()
+  return diff <= 15 * 60 * 1000 
+}
