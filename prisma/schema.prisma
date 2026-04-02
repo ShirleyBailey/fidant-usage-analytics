@@ -25,3 +25,16 @@ model daily_usage_events {
   committed_at DateTime?
   created_at   DateTime @default(now())
 }
+
+model daily_usage_cache {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  date_key   String   @db.VarChar(10)
+
+  committed  Int
+  reserved   Int
+
+  updated_at DateTime @updatedAt
+
+  @@unique([user_id, date_key])
+}
