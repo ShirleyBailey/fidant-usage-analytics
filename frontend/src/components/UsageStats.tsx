@@ -95,7 +95,10 @@ export default function UsageStats() {
       {/* Chart */}
       <ResponsiveContainer width="100%" height={300}>
         <BarChart data={data.days}>
-          <XAxis dataKey="date" />
+          <XAxis
+            dataKey="date"
+            tickFormatter={(v) => v.slice(5)} // MM-DD
+            />
           <YAxis />
           <Tooltip />
           <Bar dataKey="committed" />
