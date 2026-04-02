@@ -28,15 +28,30 @@ export async function getUsageStats(
   const from = dateRange[0]
   const to = dateRange[dateRange.length - 1]
 
-  const events = await prisma.daily_usage_events.findMany({
+  const now = new Date()
+
+  // fetch cache
+  const cacheEntries = await prisma.daily_usage_cache.findMany({
     where: {
       user_id: userId,
       date_key: {
-        gte: from,
-        lte: to
+        in: dateRange
       }
     }
   })
+
+  const cacheMap: Record<
+    string,
+    { committed: number; reserved: number; updated_at: Date }
+  > = {}
+
+  for (const c of cacheEntries) {
+    cacheMap[c.date_key] = {
+      committed: c.committed,
+      reserved: c.reserved,
+      updated_at: c.updated_at
+    }
+  }
 
   const map: Record<string, { committed: number; reserved: number }> = {}
 
@@ -44,17 +59,85 @@ export async function getUsageStats(
     map[date] = { committed: 0, reserved: 0 }
   }
 
-  for (const event of events) {
-    if (!map[event.date_key]) continue
+  const missingDates: string[] = []
 
-    if (event.status === 'committed') {
-      map[event.date_key].committed += 1
+  // decide cache usage
+  for (const date of dateRange) {
+    const cache = cacheMap[date]
+
+    if (!cache) {
+      missingDates.push(date)
+      continue
     }
 
-    if (event.status === 'reserved') {
-      if (event.reserved_at && isRecent(event.reserved_at)) {
-        map[event.date_key].reserved += 1
+    const ageMs = now.getTime() - cache.updated_at.getTime()
+
+    // cache freshness: 5 minutes
+    if (ageMs > 5 * 60 * 1000) {
+      missingDates.push(date)
+    } else {
+      map[date] = {
+        committed: cache.committed,
+        reserved: cache.reserved
       }
+    }
+  }
+
+  // recompute missing dates
+  if (missingDates.length > 0) {
+    const events = await prisma.daily_usage_events.findMany({
+      where: {
+        user_id: userId,
+        date_key: {
+          in: missingDates
+        }
+      }
+    })
+
+    const temp: Record<string, { committed: number; reserved: number }> = {}
+
+    for (const date of missingDates) {
+      temp[date] = { committed: 0, reserved: 0 }
+    }
+
+    for (const event of events) {
+      if (!temp[event.date_key]) continue
+
+      if (event.status === 'committed') {
+        temp[event.date_key].committed += 1
+      }
+
+      if (event.status === 'reserved') {
+        if (event.reserved_at && isRecent(event.reserved_at)) {
+          temp[event.date_key].reserved += 1
+        }
+      }
+    }
+
+    // update cache and map
+    for (const date of missingDates) {
+      const value = temp[date]
+
+      map[date] = value
+
+      await prisma.daily_usage_cache.upsert({
+        where: {
+          user_id_date_key: {
+            user_id: userId,
+            date_key: date
+          }
+        },
+        update: {
+          committed: value.committed,
+          reserved: value.reserved
+        },
+        create: {
+          user_id: userId,
+          date_key: date,
+          committed: value.committed,
+          reserved: value.reserved
+        }
+      })
     }
   }
 
@@ -71,21 +154,15 @@ export async function getUsageStats(
     }
   })
 
-  // -------------------------
-  // 🔥 STEP 4: SUMMARY 
-  // -------------------------
-
-  // 1. total_committed
+  // summary calculations
   const total_committed = daysData.reduce(
     (sum, d) => sum + d.committed,
     0
   )
 
-  // 2. avg_daily
   const avg_daily =
     daysData.length > 0 ? total_committed / daysData.length : 0
 
-  // 3. peak_day
   let peak_day: { date: string; count: number } | null = null
 
   for (const d of daysData) {
