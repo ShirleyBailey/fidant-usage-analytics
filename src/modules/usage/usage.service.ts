@@ -3,7 +3,11 @@ import { getDateRange } from '../../lib/date'
 import { UsageStatsResponse } from './usage.types'
 import { isRecent } from './usage.utils'
 
-const PLAN_LIMITS: Record<string, number> = {
+// type
+type PlanTier = 'starter' | 'pro' | 'executive'
+
+// constants
+const PLAN_LIMITS: Record<PlanTier, number> = {
   starter: 30,
   pro: 100,
   executive: 500
@@ -13,6 +17,7 @@ export async function getUsageStats(
   userId: number,
   days: number
 ): Promise<UsageStatsResponse> {
+  // user fetch
   const user = await prisma.users.findUnique({
     where: { id: userId }
   })
@@ -21,9 +26,11 @@ export async function getUsageStats(
     throw new Error('User not found')
   }
 
-  const plan = user.plan_tier
-  const daily_limit = PLAN_LIMITS[plan] || 30
+  // safe cast
+  const plan = user.plan_tier as PlanTier
+  const daily_limit = PLAN_LIMITS[plan] ?? 30
 
+  // date range
   const dateRange = getDateRange(days)
   const from = dateRange[0]
   const to = dateRange[dateRange.length - 1]
@@ -72,7 +79,7 @@ export async function getUsageStats(
 
     const ageMs = now.getTime() - cache.updated_at.getTime()
 
-    // cache freshness: 5 minutes
+    // 5 min freshness
     if (ageMs > 5 * 60 * 1000) {
       missingDates.push(date)
     } else {
@@ -83,7 +90,7 @@ export async function getUsageStats(
     }
   }
 
-  // recompute missing dates
+  // recompute missing
   if (missingDates.length > 0) {
     const events = await prisma.daily_usage_events.findMany({
       where: {
@@ -114,33 +121,36 @@ export async function getUsageStats(
       }
     }
 
-    // update cache and map
-    for (const date of missingDates) {
-      const value = temp[date]
+    // batch upsert (no N+1)
+    await prisma.$transaction(
+      missingDates.map((date) => {
+        const value = temp[date]
 
-      map[date] = value
+        map[date] = value
 
-      await prisma.daily_usage_cache.upsert({
-        where: {
-          user_id_date_key: {
+        return prisma.daily_usage_cache.upsert({
+          where: {
+            user_id_date_key: {
+              user_id: userId,
+              date_key: date
+            }
+          },
+          update: {
+            committed: value.committed,
+            reserved: value.reserved
+          },
+          create: {
             user_id: userId,
-            date_key: date
+            date_key: date,
+            committed: value.committed,
+            reserved: value.reserved
           }
-        },
-        update: {
-          committed: value.committed,
-          reserved: value.reserved
-        },
-        create: {
-          user_id: userId,
-          date_key: date,
-          committed: value.committed,
-          reserved: value.reserved
-        }
+        })
       })
-    }
+    )
   }
 
+  // build days array
   const daysData = dateRange.map((date) => {
     const committed = map[date].committed
     const reserved = map[date].reserved
@@ -150,11 +160,11 @@ export async function getUsageStats(
       committed,
       reserved,
       limit: daily_limit,
-      utilization: committed / daily_limit
+      utilization: Number((committed / daily_limit).toFixed(2))
     }
   })
 
-  // summary calculations
+  // summary
   const total_committed = daysData.reduce(
     (sum, d) => sum + d.committed,
     0
